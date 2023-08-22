@@ -2,6 +2,7 @@
 #
 #
 
+from ..record import Create, NsRecord, Update
 from ..source.base import BaseSource
 from ..zone import Zone
 from . import SupportsException
@@ -214,6 +215,23 @@ class BaseProvider(BaseSource):
         '''
         return []
 
+    def _force_root_ns_update(self, changes):
+        '''
+        Changes any 'Create' changetype for a root NS record to an 'Update'
+        changetype. Used on new zone creation when a provider is managing
+        root NS records. Providers will auto-create a root NS record,
+        so our desired NS record must be applied as an Update instead of a
+        Create.
+        '''
+        for change in changes:
+            if (
+                change.record.name == ""
+                and isinstance(change.record, NsRecord)
+                and isinstance(change, Create)
+            ):
+                change.__class__ = Update
+                return
+
     def supports_warn_or_except(self, msg, fallback):
         if self.strict_supports:
             raise SupportsException(f'{self.id}: {msg}')
@@ -290,6 +308,8 @@ class BaseProvider(BaseSource):
         zone_name = plan.desired.decoded_name
         num_changes = len(plan.changes)
         self.log.info('apply: making %d changes to %s', num_changes, zone_name)
+        if not plan.exists:
+            self._force_root_ns_update(plan.changes)
         self._apply(plan)
         return len(plan.changes)
 
